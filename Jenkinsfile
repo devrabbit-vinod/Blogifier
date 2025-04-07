@@ -1,13 +1,13 @@
 pipeline {
     agent any
     
-   environment {
+    environment {
         DOTNET_CLI_TELEMETRY_OPTOUT = '1'
-        SOLUTION_FILE = 'Blogifier.sln'          // Change to your solution file
-        PROJECT_FILE = 'src/Blogifier/Blogifier.csproj'  // Change to your project file
+        SOLUTION_FILE = 'Blogifier.sln'
+        PROJECT_FILE = 'src/Blogifier/Blogifier.csproj'
         BUILD_CONFIGURATION = 'Release'
         PUBLISH_DIR = 'publish'
-        HOST_PORT = '9012'                         // Set your custom port here
+        HOST_PORT = '9012'
     }
   
     stages {
@@ -23,14 +23,15 @@ pipeline {
         
         stage('Restore Dependencies') {
             steps {
-                sh 'dotnet restore ${SOLUTION_FILE}'
+                sh "dotnet restore ${SOLUTION_FILE}"
             }
         }
         
         stage('Build') {
             steps {
                 sh """
-                dotnet build --configuration ${BUILD_CONFIGURATION} \
+                dotnet build ${SOLUTION_FILE} \
+                --configuration ${BUILD_CONFIGURATION} \
                 --no-restore \
                 /p:Version=${BUILD_NUMBER}
                 """
@@ -39,33 +40,42 @@ pipeline {
       
         stage('Security Scan') {
             steps {
-                // Example: Run security scanning tools
                 sh 'dotnet list package --vulnerable'
-                // Could add OWASP Dependency Check or other scanners
             }
         }
         
-        stage('Publish Application') {
+        stage('Publish') {
+            steps {
+                sh """
+                dotnet publish ${PROJECT_FILE} \
+                -c ${BUILD_CONFIGURATION} \
+                -o ${PUBLISH_DIR} \
+                --no-restore
+                """
+            }
+        }
+        
+        stage('Host Application') {
             steps {
                 script {
-                    // Stop any existing running application on this port
+                    // Stop any existing running application
                     sh "sudo fuser -k ${HOST_PORT}/tcp || true"
                     
-                    // Run the application in background with your custom port
+                    // Run the application
                     sh """
                     nohup dotnet ${PUBLISH_DIR}/${PROJECT_FILE.split('/').last().replace('.csproj', '.dll')} \
                     --urls "http://*:${HOST_PORT}" > ${PUBLISH_DIR}/app.log 2>&1 &
                     """
                     
                     // Verify application is running
-                    sh "sleep 5" // Wait for app to start
+                    sh "sleep 5"
                     sh "curl -I http://localhost:${HOST_PORT}"
                 }
             }
         }
     }
     
-   post {
+    post {
         always {
             archiveArtifacts artifacts: "${PUBLISH_DIR}/**"
         }
